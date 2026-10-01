@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Disaster Copilot</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>#map{height:400px} body{font-family:sans-serif;margin:10px}</style>
+</head>
+<body>
+<h2>Disaster Response Copilot</h2>
+<div id="map"></div>
+<p id="loc">Click the map to set location</p>
+<textarea id="text" rows="3" style="width:100%"></textarea>
+<button onclick="send()">Submit report</button>
+<h3>Priority list</h3>
+<ol id="list"></ol>
+<script>
+const map = L.map('map').setView([13.0827, 80.2707], 11);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+let pos = null, markers = [];
+map.on('click', e => {
+  pos = e.latlng;
+  document.getElementById('loc').innerText =
+    `Location: ${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`;
+});
+async function send() {
+  if (!pos) return alert('Click the map first');
+  const text = document.getElementById('text').value;
+  await fetch('/report', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text, lat: pos.lat, lng: pos.lng})
+  });
+  document.getElementById('text').value = '';
+  load();
+}
+async function load() {
+  const data = await (await fetch('/reports')).json();
+  markers.forEach(m => m.remove()); markers = [];
+  const list = document.getElementById('list'); list.innerHTML = '';
+  data.forEach(r => {
+    const color = r.urgency >= 4 ? 'red' : r.urgency >= 3 ? 'orange' : 'green';
+    markers.push(L.circleMarker([r.lat, r.lng], {color, radius: 10})
+      .addTo(map).bindPopup(r.summary));
+    list.innerHTML += `<li><b>${r.problem_type}</b> (urgency ${r.urgency},
+      people ${r.people_affected}): ${r.summary}</li>`;
+  });
+}
+load();
+</script>
+</body>
+</html>
