@@ -11,6 +11,7 @@
 <div id="map"></div>
 <p id="loc">Click the map to set location</p>
 <textarea id="text" rows="3" style="width:100%"></textarea>
+<input type="file" id="photo" accept="image/*">
 <button onclick="send()">Submit report</button>
 <h3>Priority list</h3>
 <ol id="list"></ol>
@@ -23,15 +24,26 @@ map.on('click', e => {
   document.getElementById('loc').innerText =
     `Location: ${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`;
 });
+function toBase64(file) {
+  return new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.readAsDataURL(file);
+  });
+}
 async function send() {
   if (!pos) return alert('Click the map first');
   const text = document.getElementById('text').value;
+  const file = document.getElementById('photo').files[0];
+  let image = null;
+  if (file) image = await toBase64(file);
   await fetch('/report', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({text, lat: pos.lat, lng: pos.lng})
+    body: JSON.stringify({text, lat: pos.lat, lng: pos.lng, image})
   });
   document.getElementById('text').value = '';
+  document.getElementById('photo').value = '';
   load();
 }
 async function load() {
