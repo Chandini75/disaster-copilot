@@ -2,9 +2,9 @@
 <html>
 <head>
 <title>Disaster Copilot</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>#map{height:400px} body{font-family:sans-serif;margin:10px}</style>
+<link rel="stylesheet" href="/lib/leaflet.css">
+<script src="/lib/leaflet.js"></script>
+<style>#map{height:400px;background:#dfe8ee} body{font-family:sans-serif;margin:10px}</style>
 </head>
 <body>
 <h2>Disaster Response Copilot</h2>
@@ -13,6 +13,7 @@
 <textarea id="text" rows="3" style="width:100%"></textarea>
 <input type="file" id="photo" accept="image/*">
 <button onclick="send()">Submit report</button>
+<button onclick="resetAll()">Clear all reports</button>
 <h3>Priority list</h3>
 <ol id="list"></ol>
 <script>
@@ -57,6 +58,10 @@ async function load() {
     list.innerHTML += `<li><b>${r.problem_type}</b> (urgency ${r.urgency},
       people ${r.people_affected}): ${r.summary}</li>`;
   });
+}
+async function resetAll() {
+  await fetch('/reset', {method: 'POST'});
+  load();
 }
 load();
 </script>

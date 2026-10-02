@@ -46,5 +46,8 @@ def add_report(rep: Report):
 @app.get("/reports")
 def get_reports():
     return sorted(reports, key=lambda r: r["score"], reverse=True)
-
+@app.post("/reset")
+def reset():
+    reports.clear()
+    return {"ok": True}
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
