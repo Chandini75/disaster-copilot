@@ -2,3 +2,4 @@ fastapi
 uvicorn
 requests
 faster-whisper
+av==13.1.0

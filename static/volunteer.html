@@ -157,7 +157,7 @@ async function send() {
         audio: audioData
       })
     });
-    if (!res.ok) throw new Error('Server error');
+        if (!res.ok) throw new Error('Server error ' + res.status);
     const data = await res.json();
     msg.style.background = '#d4edda';
     msg.innerText = `Report sent. The rescue team can see it now.\nThe AI understood: ${data.summary} (urgency ${data.urgency} of 5)`;
@@ -170,7 +170,7 @@ async function send() {
     audioData = null;
   } catch (err) {
     msg.style.background = '#f8d7da';
-    msg.innerText = 'Could not send. Check that the app and Ollama are running, then try again.';
+    msg.innerText = 'Could not send (' + err.message + '). Check that the app and Ollama are running, then try again.';
   }
   msg.style.display = 'block';
   btn.disabled = false;
