@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send a Report</title>
+<link rel="stylesheet" href="/lib/leaflet.css">
+<script src="/lib/leaflet.js"></script>
+<style>
+  body{font-family:sans-serif;padding:14px;max-width:600px;margin:auto}
+  h2{margin-top:0}
+  #map{height:300px;background:#dfe8ee;border-radius:8px}
+  label{display:block;font-weight:bold;margin:16px 0 6px}
+  textarea{width:100%;box-sizing:border-box;font-size:16px;padding:8px}
+  button{font-size:16px;padding:10px 14px;margin:4px 4px 4px 0;border-radius:8px;border:1px solid #888;background:#f4f4f4}
+  #send{width:100%;background:#c0392b;color:#fff;border:none;font-weight:bold;margin-top:18px}
+  #send:disabled{background:#999}
+  #msg{margin-top:14px;padding:10px;border-radius:8px;display:none}
+  img.preview{max-width:200px;border-radius:8px;display:none;margin-top:8px}
+</style>
+</head>
+<body>
+<h2>Send a Report</h2>
+<p>Tell the rescue team what is happening. Use text, a photo, a voice message, or all three.</p>
+
+<label>1. What is happening?</label>
+<textarea id="text" rows="3" placeholder="Example: Water is rising, 3 people on the roof"></textarea>
+
+<label>2. Photo (optional)</label>
+<input type="file" id="photo" accept="image/*">
+<img id="photoPreview" class="preview">
+
+<label>3. Voice message (optional)</label>
+<button id="rec" type="button">Start recording</button>
+<span id="recStatus"></span>
+<audio id="audioPreview" controls style="display:none;margin-top:8px;width:100%"></audio>
+
+<label>4. Where are you?</label>
+<button type="button" onclick="useGps()">Use my current location</button>
+<p id="loc">Or tap the map to set the location</p>
+<div id="map"></div>
+
+<button id="send" onclick="send()">Send report</button>
+<div id="msg"></div>
+
+<script>
+const map = L.map('map').setView([13.0827, 80.2707], 11);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+let pos = null, pin = null, photoData = null, audioData = null;
+
+function setPos(lat, lng) {
+  pos = {lat, lng};
+  if (pin) pin.remove();
+  pin = L.circleMarker([lat, lng], {color: 'blue', radius: 10}).addTo(map);
+  document.getElementById('loc').innerText =
+    `Location set: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+}
+map.on('click', e => setPos(e.latlng.lat, e.latlng.lng));
+
+function useGps() {
+  if (!navigator.geolocation) return alert('GPS not available. Tap the map instead.');
+  navigator.geolocation.getCurrentPosition(
+    p => {
+      setPos(p.coords.latitude, p.coords.longitude);
+      map.setView([p.coords.latitude, p.coords.longitude], 15);
+    },
+    () => alert('Could not get GPS. Tap the map instead.')
+  );
+}
+
+function toDataUrl(blob) {
+  return new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.readAsDataURL(blob);
+  });
+}
+
+function resizeImage(file, maxSize) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = img.width * scale;
+      c.height = img.height * scale;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL('image/jpeg', 0.8));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+document.getElementById('photo').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  const preview = document.getElementById('photoPreview');
+  if (file) {
+    photoData = await resizeImage(file, 800);
+    preview.src = photoData;
+    preview.style.display = 'block';
+  } else {
+    photoData = null;
+    preview.style.display = 'none';
+  }
+});
+
+let recorder = null, chunks = [];
+document.getElementById('rec').addEventListener('click', async () => {
+  const btn = document.getElementById('rec');
+  const status = document.getElementById('recStatus');
+  if (recorder && recorder.state === 'recording') {
+    recorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    return alert('Voice recording is not available in this browser.');
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    recorder = new MediaRecorder(stream);
+    chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks, {type: recorder.mimeType});
+      audioData = await toDataUrl(blob);
+      const player = document.getElementById('audioPreview');
+      player.src = audioData;
+      player.style.display = 'block';
+      btn.innerText = 'Record again';
+      status.innerText = '';
+    };
+    recorder.start();
+    btn.innerText = 'Stop recording';
+    status.innerText = ' Recording...';
+  } catch (err) {
+    alert('Could not use the microphone. Allow microphone access and try again.');
+  }
+});
+
+async function send() {
+  const text = document.getElementById('text').value.trim();
+  if (!pos) return alert('Please set your location first.');
+  if (!text && !photoData && !audioData) return alert('Add a text, photo or voice message.');
+  const btn = document.getElementById('send');
+  const msg = document.getElementById('msg');
+  btn.disabled = true;
+  btn.innerText = 'Sending... the AI is reading your report';
+  msg.style.display = 'none';
+  try {
+    const res = await fetch('/report', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        text, lat: pos.lat, lng: pos.lng,
+        image: photoData ? photoData.split(',')[1] : null,
+        audio: audioData
+      })
+    });
+    if (!res.ok) throw new Error('Server error');
+    const data = await res.json();
+    msg.style.background = '#d4edda';
+    msg.innerText = `Report sent. The rescue team can see it now.\nThe AI understood: ${data.summary} (urgency ${data.urgency} of 5)`;
+    document.getElementById('text').value = '';
+    document.getElementById('photo').value = '';
+    document.getElementById('photoPreview').style.display = 'none';
+    document.getElementById('audioPreview').style.display = 'none';
+    document.getElementById('rec').innerText = 'Start recording';
+    photoData = null;
+    audioData = null;
+  } catch (err) {
+    msg.style.background = '#f8d7da';
+    msg.innerText = 'Could not send. Check that the app and Ollama are running, then try again.';
+  }
+  msg.style.display = 'block';
+  btn.disabled = false;
+  btn.innerText = 'Send report';
+}
+</script>
+</body>
+</html>

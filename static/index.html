@@ -1,69 +1,178 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Disaster Copilot</title>
+<meta charset="utf-8">
+<title>Rescue Command Center</title>
 <link rel="stylesheet" href="/lib/leaflet.css">
 <script src="/lib/leaflet.js"></script>
-<style>#map{height:400px;background:#dfe8ee} body{font-family:sans-serif;margin:10px}</style>
+<style>
+  body{font-family:sans-serif;margin:0;padding:12px;background:#f5f6f8}
+  h2{margin:0 0 10px}
+  #map{height:420px;background:#dfe8ee;border-radius:8px}
+  .bar{margin:10px 0}
+  button{font-size:15px;padding:8px 12px;margin-right:6px;border-radius:8px;border:1px solid #888;background:#fff;cursor:pointer}
+  button.primary{background:#c0392b;color:#fff;border:none;font-weight:bold}
+  button.active{background:#ffe08a}
+  #status{margin-left:6px;color:#555}
+  .card{background:#fff;border-radius:8px;padding:10px;margin:8px 0;border-left:8px solid #999}
+  .card.u5,.card.u4{border-color:#c0392b}
+  .card.u3{border-color:#e67e22}
+  .card.u2,.card.u1{border-color:#27ae60}
+  .tag{display:inline-block;background:#eee;border-radius:6px;padding:2px 8px;margin-right:6px;font-size:13px}
+  .assigned{color:#1a5fb4;font-weight:bold}
+  .warn{color:#c0392b;font-weight:bold}
+  img.thumb{max-width:180px;border-radius:6px;display:block;margin-top:6px}
+  audio{display:block;margin-top:6px;width:100%;max-width:320px}
+  .teams span{display:inline-block;background:#fff;border-radius:8px;padding:6px 10px;margin:4px 6px 4px 0}
+</style>
 </head>
 <body>
-<h2>Disaster Response Copilot</h2>
+<h2>Rescue Command Center</h2>
 <div id="map"></div>
-<p id="loc">Click the map to set location</p>
-<textarea id="text" rows="3" style="width:100%"></textarea>
-<input type="file" id="photo" accept="image/*">
-<button onclick="send()">Submit report</button>
-<button onclick="resetAll()">Clear all reports</button>
+<div class="bar">
+  <button id="addTeamBtn" onclick="toggleAddTeam()">Add rescue team</button>
+  <button class="primary" onclick="dispatch()">Dispatch teams</button>
+  <button onclick="resetAll()">Clear all reports</button>
+    <button onclick="clearTeams()">Clear all teams</button>
+  <span id="status"></span>
+</div>
+<div class="teams" id="teams"></div>
 <h3>Priority list</h3>
-<ol id="list"></ol>
+<div id="list"></div>
+
 <script>
 const map = L.map('map').setView([13.0827, 80.2707], 11);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-let pos = null, markers = [];
-map.on('click', e => {
-  pos = e.latlng;
-  document.getElementById('loc').innerText =
-    `Location: ${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`;
-});
-function toBase64(file) {
-  return new Promise(res => {
-    const r = new FileReader();
-    r.onload = () => res(r.result.split(',')[1]);
-    r.readAsDataURL(file);
-  });
+const layer = L.layerGroup().addTo(map);
+let addingTeam = false, lastSig = '', teamCount = 0;
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-async function send() {
-  if (!pos) return alert('Click the map first');
-  const text = document.getElementById('text').value;
-  const file = document.getElementById('photo').files[0];
-  let image = null;
-  if (file) image = await toBase64(file);
-  await fetch('/report', {
+function setStatus(t) { document.getElementById('status').innerText = t; }
+
+function toggleAddTeam() {
+  addingTeam = !addingTeam;
+  document.getElementById('addTeamBtn').classList.toggle('active', addingTeam);
+  setStatus(addingTeam ? 'Click the map where the team is located' : '');
+}
+
+map.on('click', async e => {
+  if (!addingTeam) return;
+  const name = prompt('Team name?', 'Team ' + (teamCount + 1));
+  if (!name) return toggleAddTeam();
+  const cap = parseInt(prompt('How many people can this team rescue?', '4'));
+  if (!cap || cap < 1) return toggleAddTeam();
+  await fetch('/team', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({text, lat: pos.lat, lng: pos.lng, image})
+    body: JSON.stringify({name, lat: e.latlng.lat, lng: e.latlng.lng, capacity: cap})
   });
-  document.getElementById('text').value = '';
-  document.getElementById('photo').value = '';
-  load();
+  toggleAddTeam();
+  load(true);
+});
+
+async function dispatch() {
+  if (teamCount === 0) return setStatus('Add a rescue team first');
+  const res = await (await fetch('/dispatch', {method: 'POST'})).json();
+  setStatus(res.assigned > 0 ? res.assigned + ' team(s) assigned'
+                             : 'Nothing to assign (no free team or no new report)');
+  load(true);
 }
-async function load() {
-  const data = await (await fetch('/reports')).json();
-  markers.forEach(m => m.remove()); markers = [];
-  const list = document.getElementById('list'); list.innerHTML = '';
-  data.forEach(r => {
-    const color = r.urgency >= 4 ? 'red' : r.urgency >= 3 ? 'orange' : 'green';
-    markers.push(L.circleMarker([r.lat, r.lng], {color, radius: 10})
-      .addTo(map).bindPopup(r.summary));
-    list.innerHTML += `<li><b>${r.problem_type}</b> (urgency ${r.urgency},
-      people ${r.people_affected}): ${r.summary}</li>`;
-  });
+async function resolveReport(id) {
+  await fetch('/resolve/' + id, {method: 'POST'});
+  load(true);
+}
+async function removeTeam(id) {
+  await fetch('/team/' + id + '/remove', {method: 'POST'});
+  load(true);
+}
+async function clearTeams() {
+  if (!confirm('Remove all rescue teams?')) return;
+  await fetch('/teams/clear', {method: 'POST'});
+  load(true);
 }
 async function resetAll() {
+  if (!confirm('Delete all reports?')) return;
   await fetch('/reset', {method: 'POST'});
-  load();
+  load(true);
 }
-load();
+function focusReport(lat, lng) { map.setView([lat, lng], 16); }
+
+async function load(force) {
+  let reports, teams;
+  try {
+    reports = await (await fetch('/reports')).json();
+    teams = await (await fetch('/teams')).json();
+  } catch (e) { return; }
+  teamCount = teams.length;
+  const sig = JSON.stringify([
+    reports.map(r => [r.id, r.count, r.status, r.team_id, r.urgency, r.people_affected]),
+    teams.map(t => [t.id, t.report_id])
+  ]);
+  if (!force && sig === lastSig) return;
+  lastSig = sig;
+  render(reports, teams);
+}
+
+function render(reports, teams) {
+  layer.clearLayers();
+  const teamById = {};
+  teams.forEach(t => teamById[t.id] = t);
+
+  reports.forEach(r => {
+    const color = r.urgency >= 4 ? 'red' : r.urgency >= 3 ? 'orange' : 'green';
+    L.circleMarker([r.lat, r.lng], {color, radius: 11, fillOpacity: 0.5})
+      .addTo(layer).bindPopup(esc(r.summary));
+    const t = teamById[r.team_id];
+    if (t) {
+      L.polyline([[t.lat, t.lng], [r.lat, r.lng]],
+        {color: '#1a5fb4', dashArray: '6 8'}).addTo(layer);
+    }
+  });
+  teams.forEach(t => {
+    const icon = L.divIcon({html: '<div style="font-size:26px">🚑</div>',
+                            className: '', iconSize: [30, 30]});
+    L.marker([t.lat, t.lng], {icon}).addTo(layer)
+      .bindPopup(esc(t.name) + ' (can rescue ' + t.capacity + ')');
+  });
+
+  document.getElementById('teams').innerHTML = teams.length
+        ? teams.map(t => `<span>🚑 ${esc(t.name)} (can rescue ${t.capacity}) - ${t.report_id ? 'busy' : 'free'} <button onclick="removeTeam(${t.id})">Remove</button></span>`).join('')
+    : '<i>No rescue teams yet. Click "Add rescue team", then click the map.</i>';
+
+  const list = document.getElementById('list');
+  if (!reports.length) {
+    list.innerHTML = '<i>No reports yet. Reports from the volunteer page appear here.</i>';
+    return;
+  }
+  list.innerHTML = reports.map((r, i) => {
+    const t = teamById[r.team_id];
+    let assign = '<span>Not assigned yet</span>';
+    if (r.status === 'assigned' && t) {
+      assign = `<span class="assigned">Assigned to ${esc(t.name)}, ${(r.distance_m / 1000).toFixed(1)} km away</span>`;
+      if (r.backup_needed) assign += ' <span class="warn">Backup needed</span>';
+    }
+    const texts = (r.texts || []).map(x => '<div>"' + esc(x) + '"</div>').join('');
+    const img = r.image ? `<img class="thumb" src="data:image/jpeg;base64,${r.image}">` : '';
+    const audio = r.audio ? `<audio controls src="${r.audio}" onclick="event.stopPropagation()"></audio>` : '';
+    return `<div class="card u${r.urgency}" onclick="focusReport(${r.lat}, ${r.lng})">
+      <b>#${i + 1}</b>
+      <span class="tag">${esc(r.problem_type)}</span>
+      <span class="tag">urgency ${r.urgency}/5</span>
+      <span class="tag">${r.people_affected} people</span>
+      <span class="tag">${r.count} report${r.count > 1 ? 's' : ''}</span>
+      <div style="margin-top:6px"><b>${esc(r.summary)}</b></div>
+      ${texts}${img}${audio}
+      <div style="margin-top:6px">${assign}</div>
+      <button style="margin-top:6px" onclick="event.stopPropagation(); resolveReport(${r.id})">Mark resolved</button>
+    </div>`;
+  }).join('');
+}
+
+load(true);
+setInterval(() => load(false), 3000);
 </script>
 </body>
 </html>
