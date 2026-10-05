@@ -19,7 +19,6 @@ class Report(BaseModel):
     image: Optional[str] = None
     audio: Optional[str] = None
 
-
 class Team(BaseModel):
     name: str
     lat: float
